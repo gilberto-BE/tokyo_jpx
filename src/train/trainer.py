@@ -1,3 +1,4 @@
+from src.metrics.metrics import compute_metrics
 import torch
 import torch.nn as nn
 torch.manual_seed(0)
@@ -11,7 +12,7 @@ import torchmetrics as TM
 # pl.utilities.seed.seed_everything(seed=42)
 from torch import nn, Tensor
 import math
-from metrics import metrics
+from metrics import compute_metrics
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -163,7 +164,7 @@ class Trainer:
                 last_loss = running_loss/loss_every
                 running_loss = 0.0
 
-        train_metrics = metrics(pred, y)
+        train_metrics = compute_metrics()(pred, y)
         return pred, last_loss, train_metrics
 
     def run_val_step(self, valid_loader, x_cat=True):
@@ -181,7 +182,7 @@ class Trainer:
             loss = self.loss_fn(pred, y)
             running_loss += loss
         avg_loss = running_loss/(batch + 1)
-        val_metrics = metrics(pred, y)
+        val_metrics = compute_metrics(pred, y)
         return pred, avg_loss, val_metrics
 
     def save_model(self, model, path='./trained_model.pt'):

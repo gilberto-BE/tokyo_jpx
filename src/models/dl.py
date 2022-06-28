@@ -288,3 +288,6 @@ class NeuralNetwork(nn.Module):
             block_input, pred = S(block_input)
             tot_preds += pred
         return tot_preds
+
+
+
