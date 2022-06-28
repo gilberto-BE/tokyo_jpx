@@ -1,324 +1,358 @@
-import pandas as pd
+
 import numpy as np
 import torch
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from torch.utils.data import (
-    DataLoader, 
-    Dataset
-    )
-from sklearn.model_selection import train_test_split
-import sys, os
+from torch.utils.data import DataLoader, Dataset
+from sklearn.impute import SimpleImputer
+import pandas as pd
+from sklearn.preprocessing import OrdinalEncoder
+from sklearn.preprocessing import StandardScaler
 
-def create_rolling_ts(
-    input_data, 
-    lookback=5, 
-    return_np=False
+
+def set_date_index(df, col='Date'):
+    df[col] = pd.to_datetime(df[col])
+    df.set_index(col, inplace=True)
+    return df
+
+
+def get_data(folder='train_files'):
+    """
+    HOW TO HANDLE PREPROCESSING TEXT FOR 
+    PREDICTION PIPELINE????
+
+    Hard-coded rules for data.
+
+    How it will be handle:
+    Text transformer can be applied without saving the 
+    state of the object, one reason, is that
+    the categorical variables are static.
+
+    Run the get data even for test data.
+    """
+    computer_name1 = 'gilbe'
+    computer_name2 = 'Gilberto-BE'
+
+    ROOT_PATH = f'c:/Users/{computer_name1}/Documents/TokyoData'
+    train_df = pd.read_csv(f'{ROOT_PATH}/{folder}/stock_prices.csv')
+    stock_list = pd.read_csv(f'{ROOT_PATH}/stock_list.csv').drop('Close', axis=1)
+
+    TEXT_COLS = ['Section/Products', '33SectorName', '17SectorName', 'Universe0']
+    stock_list = stock_list[TEXT_COLS + ['MarketCapitalization', 'SecuritiesCode']]
+    train_df = stock_list.merge(train_df, on=['SecuritiesCode'])
+
+    for txt_col in TEXT_COLS:
+        train_df[txt_col] = TextTransform(list(train_df[txt_col])).transform()
+
+    # # Add financials
+    # df_financials = pd.read_csv(f'{ROOT_PATH}/train_files/financials.csv', low_memory=False)
+    # df_financials.replace('－', np.nan, inplace=True)
+    # df_financials.replace('NaN', np.nan, inplace=True)
+
+    # FIN_COLS_CONT = [
+    #     'NetSales', 'EquityToAssetRatio', 'TotalAssets', 'Profit', 
+    #     'OperatingProfit', 'EarningsPerShare', 'Equity', 
+    #     'BookValuePerShare', 'ResultDividendPerShare1stQuarter', 
+    #     'ResultDividendPerShare2ndQuarter', 'ResultDividendPerShare3rdQuarter',
+    #     'ResultDividendPerShareFiscalYearEnd', 'ResultDividendPerShareAnnual'
+    #     ]
+    # df_financials[FIN_COLS_CONT] = df_financials[FIN_COLS_CONT].astype(float)
+    # df_financials = df_financials[FIN_COLS_CONT + ['SecuritiesCode', 'Date']]
+    # train_df = train_df.merge(df_financials,  on=['SecuritiesCode', 'Date'], how='left')
+    
+    train_df = set_date_index(train_df)
+    print('train_df.head(10):')
+    print(train_df.head(10))
+
+
+    # train_df['Date'] = pd.to_datetime(train_df['Date']) 
+    # train_df.set_index('Date', inplace=True)
+
+
+    return train_df
+
+
+class TextTransform:
+    def __init__(self, tokens):
+        self.token_np = np.array(list(tokens)) #if isinstance(tokens, (pd.DataFrame, pd.Series)) else tokens
+        self.vocab = np.unique(self.token_np)
+        self.w2idx = {w: int(i) for i, w in enumerate(self.vocab)}
+        self.idx2w = {int(i): w for i, w in enumerate(self.vocab)}
+
+    def transform(self):
+        self.idx = [self.w2idx[i] for i in self.token_np]
+        return self.idx
+
+    def inv_transform(self):
+        return [self.idx2w[i] for i in self.idx]
+
+
+def dataloader_by_stock(
+    train_df, 
+    sec_code, 
+    batch_size=32,  
+    continous_cols=['Close'],
+    return_scaler=False,
+    transform=StandardScaler
     ):
+    df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
+    df = date_features(df)
+    
     """
-    Make flat raw_data by using pd.concat instead, pd.concat([df1, df2]).
-    Slow function.
-    Save raw_data as preprocessed?
+
+    TODO:
+    1. CREATE A BRANCH FOR THE TESTING PHASE!!!!
+
+    CHANGES HERE HAVE TO BE IMPLEMENTED IN dataloader_test_by_stock()
+    Hard coded cat-columns
+    
+    
     """
-    x = []
-    y = []
-    rows = len(input_data)
-    features = input_data.copy()
-    target = input_data.copy()
-    for i in range(rows - lookback):
-        rolling_features = features.iloc[i: i + lookback]
-        rolling_target = target.iloc[i + lookback: i + lookback + 1]
-        x.append(rolling_features)
-        y.append(rolling_target)
-    if return_np:
-        return np.array(x), np.array(y)
-    return x, y
+    cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
+    cont, cat = cont_cat_split(df, cat_cols=cat_cols)
+    # print('continouscols:', cont.columns)
+    
+    print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
+    
+    df_train_cat, df_val_cat = ts_split(cat)
+    # print('cat_columns:', df_train_cat.columns)
+    df_train, df_val = ts_split(cont)
+
+    xtrain, ytrain = preprocess(df_train, 'Target', 1, continous_cols=continous_cols)
+    xval, yval = preprocess(df_val, 'Target', 1, continous_cols=continous_cols)
+
+    # if transform is not None:
+    #     scaler = transform()
+    #     xtrain = scaler.fit_transform(xtrain)
+    #     xval = scaler.transform(xval)
+
+    train_loader = get_loader(
+        x=xtrain, 
+        y=ytrain, 
+        batch_size=batch_size, 
+        x_cat=df_train_cat.to_numpy()
+        )
+    val_dataloader = get_loader(
+        x=xval, 
+        y=yval, 
+        batch_size=batch_size, 
+        x_cat=df_val_cat.to_numpy()
+        )
+    # if return_scaler:
+    #     return train_loader, val_dataloader, scaler
+    return train_loader, val_dataloader
 
 
-def date_features(df):
-    # Check if index is datetime.
-    if isinstance(df, pd.core.series.Series):
-        df = pd.DataFrame(df, index=df.index)
+def dataloader_test_by_stock(
+    train_df, 
+    sec_code, 
+    transformer=None, 
+    batch_size=32,  
+    continous_cols=['Close'],
+    target_col='Target'
+    ):
+    df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
+    df = date_features(df)
+
+    """Hard coded cat-columns"""
+    cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
+
+
+    # df['Target'] = df['Close'].shift().pct_change()
+    # print(df.head())
+    
+    # cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
+    cont, cat = cont_cat_split(df, cat_cols=cat_cols)
+    
+    # print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
+    xtest = preprocess(cont, target_col, 1, continous_cols=continous_cols)
+
+    # if transformer is not None:
+    #     xtest = transformer.transform(xtest)
+    # else:
+    #     print('Notice that the transformer is None.')
+
+    test_dataloader = get_predict_loader(
+        x=xtest, 
+        batch_size=batch_size, 
+        x_cat=cat.to_numpy()
+        )
+    return test_dataloader
+
+
+def ts_split(raw_data, train_size=0.85, val_size=None):
+    """
+    Hard code and train date.
+    """
+    train_sz = '2021-11-30' #int(len(raw_data) * train_size)
+    train_set = raw_data[ :train_sz]
+    valid_set = raw_data[train_sz: ]
+    return train_set, valid_set    
+
+
+def show_df(
+    df, 
+    show_info=True, 
+    show_head=True, 
+    show_tail=True, 
+    dataframe_name='financials'
+):
+    print(f'<<< {dataframe_name} >>>')
+    print(df.shape)
+    if show_info:
+        print(df.info())
+    if show_head:
+        print(df.head())
+    if show_tail:
+        print(df.tail())
+    print('-.' * 80)
+    
+    
+def date_features(df, date_col=None):
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col])
+        df.set_index(date_col, inplace=True)
 
     df.loc[:, 'day_of_year'] = df.index.dayofyear
     df.loc[:, 'month'] = df.index.month
     df.loc[:, 'day_of_week'] = df.index.day
-    df.loc[:, 'hour'] = df.index.hour
-    return df
-    
-
-def ts_split(raw_data):
-    train_size = int(len(raw_data) * 0.75)
-    train_set = raw_data.iloc[ : train_size]
-    valid_set = raw_data.iloc[train_size : ]
-    return train_set, valid_set
+    return  df
 
 
-def is_pandas(raw_data):
-    return isinstance(
-        raw_data, 
-        (pd.core.frame.DataFrame, pd.core.series.Series)
-        )
+def preprocess(
+    df, 
+    target_col='Target',
+    target_dim=1, 
+    continous_cols=['Open', 'Close', 'High', 'Low', 'Volume']
+    ):
+    """
+    -----------------
+    Return x, y
+    """
+    rows = len(df)
+    df['Volume'] = df['Volume'].astype(float)
+    x = df.drop(target_col, axis=1) if target_col is not None else df
+    x = x[continous_cols]
+    for col in continous_cols:
+        x[col] = x[col] * df['AdjustmentFactor']
+
+    if continous_cols:
+        x[continous_cols] = x[continous_cols].pct_change()
+    x = x.select_dtypes(include=[int, float]).dropna().to_numpy()
+    if target_col is not None:
+        
+        y = df[target_col].dropna()
+        # y.plot()
+        y = y.to_numpy().reshape(rows, target_dim)
+
+        return x, y
+    else:
+        # x = df
+        return x
 
 
-def  add_datepart(raw_data):
-    raw_data = date_features(raw_data)
-    return raw_data
-
-
-class ContCatSplit:
-    def __init__(
-        self, 
-        raw_data, 
-        add_date=False,
-        cat_types=None
-        ):
-
-        self.raw_data = raw_data.copy()
-        self.add_date = add_date
-        self.cat_types = cat_types
-
-    def cont_cat_split(self):
-        try:
-            if is_pandas(self.raw_data):
-                if self.add_date:
-                    self.raw_data = add_datepart(self.raw_data)
-                self.cat = self.raw_data.select_dtypes(include=self.cat_types)
-                cat_cols = self.cat.columns
-                self.cont = self.raw_data.drop(cat_cols, axis=1)
-                return self.cont, self.cat
-        except Exception as e:
-            print(f'from cont_cat_split: {e}')
+def cont_cat_split(df, col_type=None, cat_cols=None):
+    """
+    Return transformer!!!
+    """
+    if cat_cols:
+        cat = df[cat_cols]
+        if 'RowId' in cat_cols:
+           enc = OrdinalEncoder()
+           # Transform to int??
+           txt_transfom = TextTransform(cat['RowId'])
+           cat.loc[:, ['RowId']] = txt_transfom.transform()
+    elif col_type is not None:
+        cat = df.select_dtypes(include=col_type)
+    cat_cols = cat.columns
+    cont = df.drop(cat_cols, axis=1)
+    return cont, cat
 
 
 class ToTorch(Dataset):
 
     def __init__(
             self,
-            features,
-            target
+            num_features,
+            target,
+            cat_features=None
             ):
-        self.features = features
+        self.num_features = num_features
         self.target = target
+        self.cat_features = cat_features
 
     def __len__(self):
-        return len(self.features)
+        return len(self.num_features)
 
     def __getitem__(self, idx):
-        features = self.features[idx]
+        num_features = self.num_features[idx]
         target = self.target[idx]
+        cat_features = self.cat_features[idx]
+
+        if self.cat_features is not None:
+            return {
+                'num_features': torch.from_numpy(np.array(num_features)).float(), 
+                'target': torch.from_numpy(np.array(target)).float(),
+                'cat_features': torch.from_numpy(np.array(cat_features)).int()
+                }
+
         return {
-            'features': torch.from_numpy(np.array(features)).float(), 
+            'num_features': torch.from_numpy(np.array(num_features)).float(), 
             'target': torch.from_numpy(np.array(target)).float()
             }
+    
 
-
-class Scaler:
-    def __init__(self, scaler_name='standard'):
-        if scaler_name == 'standard':
-            self.transform = StandardScaler()
-        elif scaler_name == 'minmax':
-            self.transform = MinMaxScaler()
-        else:
-            pass
-
-    def train_transform(self, xtrain):
-        xtrain_np = xtrain.copy()
-        return self.transform.fit_transform(xtrain_np)
-
-    def test_transform(self, xtest):
-        return self.transform.transform(xtest)
-
-    def inverse(self, x):
-        return self.transform.inverse_transform(x)
-
-
-class Normalize:
-    def __init__(self, train_ds, valid_ds, test_ds=None):
-        self.train_ds = train_ds
-        self.valid_ds = valid_ds
-        self.test_ds = test_ds
-
-        train_ds = self.train_ds.copy()
-        self.avg = self.set_mean(train_ds)
-        self.st_dev = self.set_std(train_ds)
-
-    def fit(self):
-        try:
-            self.train_ds = self.z_norm(self.train_ds)
-            self.valid_ds = self.z_norm(self.valid_ds)
-            if self.test_ds is not None:
-                self.test_ds = self.z_norm(self.test_ds)
-                return self.train_ds, self.valid_ds, self.test_ds
-            return self.train_ds, self.valid_ds
-        except:
-            raise
-
-    def z_norm(self, x):
-        return (x[None, :, None] - self.avg)/self.st_dev        
-
-    def set_mean(self, data):
-        """Check dimensions"""
-        return np.nanmean(data)
-
-    def set_std(self, x):
-        """Check dimensions"""
-        return np.nanstd(x)
-
-    def inverse_transform(self):
-        pass
-
-
-class DataScaler:
-    """This class can be implemented in local folder"""
-    def __init__(
-        self, 
-        raw_data,
-        normalize=True, 
-        is_sequential=True,
-        scaler_name='standard',
-        # add_dates=True,
-        cat_types=['int64']
-        ):
-        self.raw_data = raw_data
-        self.normalize = normalize
-        self.is_sequential = is_sequential
-        self.scaler_name = scaler_name
-        # self.add_dates = add_dates
-        self.cat_types = cat_types
-        """
-        Categorical and numerical data 
-        go through different pipelines.
-        1) Numeric data has to be normaziled.
-        2) Categorical data does not need Normalization
-        """
-
-    def fit(self, train_ds, valid_ds, test_ds=None):
-        """
-        Use Normalize class.
-        Apply:
-        0. check how many elem from self.dataset 
-        1. fit_transform
-        2. transform
-        """
-        self.feature_scaler = Normalize(train_ds, valid_ds, test_ds)
-        # self.target_scaler = Normalize(self.scaler_name)
-        if test_ds is not None:
-            self.train_ds, self.valid_ds, self.test_ds = self.feature_scaler.fit()
-            return self.train_ds, self.valid_ds, self.test_ds
-        else:
-            self.train_ds, self.valid_ds = self.feature_scaler.fit()
-            return self.train_ds, self.valid_ds
-
-    def run_pipeline(self):
-        """Call all other methods
-        
-        1. split train-val-test
-        2. cont, cat split
-        3. both continuous and categorical to sequential
-        4. normalize
-        5. if other model than LSTM flatten data
-
-        """
-
-
-def get_cont_cat(data, add_dates=False, cat_types=['int64']):
-    num_cat = ContCatSplit(data, add_dates, cat_types)
-    cont, cat = num_cat.cont_cat_split()
-    return cont, cat
-
-
-def get_loader(x, y, batch_size):
-    # Return dict with {'features', 'targets'}
+def get_loader(x, y, batch_size, x_cat=None):
+    # Return dict with {'num_features', 'targets'}
+    if x_cat is not None:
+        return DataLoader(ToTorch(x, y, x_cat), batch_size=batch_size)
     return DataLoader(ToTorch(x, y), batch_size=batch_size)
 
 
-def get_ts_split(data, train_size=0.75, valid_size=0.25, test_size=None):
-    if test_size is not None:
-        train_ds, valid_ds = ts_split(data, train_size, valid_size)
-        valid_ds, test_ds = ts_split(valid_ds, train_size, test_size)
-        return train_ds, valid_ds, test_ds
-    train_ds, valid_ds = ts_split((data, train_size, valid_size))
-    return train_ds, valid_ds
+class TestLoader(Dataset):
 
+    def __init__(
+            self,
+            num_features,
+            cat_features=None
+            ):
+        self.num_features = num_features
+        self.cat_features = cat_features
 
-def _create_loders(data_splits, names):
-    dataloaders = {}
-    if isinstance(data_splits, tuple):
-        for ts, name in zip(data_splits, names):
-            x, y = create_rolling_ts(ts)
-            dataloaders[f'{name}'] = get_loader(x, y)
-        return dataloaders
+    def __len__(self):
+        return len(self.num_features)
 
+    def __getitem__(self, idx):
+        num_features = self.num_features[idx]
+        # target = self.target[idx]
+        cat_features = self.cat_features[idx]
 
-def data_pipeline(
-    data, 
-    train_size, 
-    valid_size, 
-    test_size=None, 
-    add_dates=True, 
-    cat_types=['int64'],
-    return_cont_cat=False
-    ):
-    """
-    Return numerical and categorical loaders
-    For combining numerical and categorical features 
-    the model has to get as input different feature-loaders.
-    e.g.
+        if self.cat_features is not None:
+            return {
+                'num_features': torch.from_numpy(np.array(num_features)).float(), 
+                'cat_features': torch.from_numpy(np.array(cat_features)).int()
+                }
 
-    continous_loader and categorical_loader
+        return {
+            'num_features': torch.from_numpy(np.array(num_features)).float(), 
+            }
 
-    Return a dict with dataloaders.
-    """
+def get_predict_loader(x, batch_size, x_cat=None):
+    if x_cat is not None:
+        return DataLoader(TestLoader(x, x_cat), batch_size=batch_size)
+    return DataLoader(TestLoader(x), batch_size=batch_size)
 
-    data_splits = ts_split(data, train_size, valid_size, test_size)
-
-    names = None
-    if test_size and len(data_splits) == 3:
-        names = ['train', 'valid', 'test']
-    else:
-        names = ['train', 'valid']
-
-    if return_cont_cat:
-        cont, cat = ContCatSplit(data, add_dates, cat_types)
-        continous_dataloaders = _create_loders(cont, names)
-        categorical_dataloaders = _create_loders(cat, names)
-        return continous_dataloaders, categorical_dataloaders
-    else:
-        if add_dates:
-            data_splits = [add_datepart(x) for x in data_splits]
-        dataloaders = _create_loders(data_splits, names)
-        return dataloaders
-
-
-def create_dummy_df():
-    index = pd.date_range(start='2001-01-01', periods=500)
-    arr = np.random.rand(500, 1)
-    df = pd.DataFrame({'close': arr.reshape(-1)}, index=index)
-    return df
 
 if __name__ == '__main__':
-    """Tests to do
-    
-    1) Test all methods...
-    """
-    np.random.seed(42)
+    token_list = ['Prime Market', 'Prime Market', 'two', 'three', 'four', 'four', 'four']
 
-    data = create_dummy_df()
-    print('data.head():')
-    print(data.head())
-    train_ds, valid_ds = ts_split(raw_data=data)
-    print('train_ds:')
-    print(train_ds)
-    print('valid_ds:')
-    print(valid_ds)
-    assert isinstance(train_ds, pd.core.frame.DataFrame)
-    assert isinstance(ts_split(raw_data=data), tuple)
-
-
-               
-
-        
-
-
-
-
+    # token_list = [sent_tokenize(token_list)]
+    print('raw tokens')
+    print(token_list)
+    txt_trans = TextTransform(token_list)
+    print('Get indexes')
+    print(txt_trans.transform())
+    print()
+    print('get dict with vocab')
+    print(txt_trans.w2idx)
+    print()
+    print('inverse transform')
+    print(txt_trans.inv_transform())
