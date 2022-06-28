@@ -1,0 +1,27 @@
+[build-system]
+requires = [
+    "setuptools>=42",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "tokyo_jpx"
+version = "0.0.01"
+authors = [
+  { name="Gilberto Batres-Estrada", email="g.batres.estrada@gmail.com" },
+]
+description = "Package for doing stock return predictions for the JPX Tokyo Exchange Kaggle competition."
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/pypa/tokyo_jpx"
+"Bug Tracker" = "https://github.com/pypa/tokyo_jpx/issues"
