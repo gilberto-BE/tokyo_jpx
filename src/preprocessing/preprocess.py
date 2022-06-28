@@ -14,7 +14,7 @@ def set_date_index(df, col='Date'):
     return df
 
 
-def get_data(folder='train_files'):
+def get_data(folder='train_files', root_path=None):
     """
     HOW TO HANDLE PREPROCESSING TEXT FOR 
     PREDICTION PIPELINE????
@@ -30,10 +30,16 @@ def get_data(folder='train_files'):
     """
     computer_name1 = 'gilbe'
     computer_name2 = 'Gilberto-BE'
+    
 
     ROOT_PATH = f'c:/Users/{computer_name1}/Documents/TokyoData'
-    train_df = pd.read_csv(f'{ROOT_PATH}/{folder}/stock_prices.csv')
-    stock_list = pd.read_csv(f'{ROOT_PATH}/stock_list.csv').drop('Close', axis=1)
+
+    if root_path is None:
+        root_path = ROOT_PATH
+
+
+    train_df = pd.read_csv(f'{root_path}/{folder}/stock_prices.csv')
+    stock_list = pd.read_csv(f'{root_path}/stock_list.csv').drop('Close', axis=1)
 
     TEXT_COLS = ['Section/Products', '33SectorName', '17SectorName', 'Universe0']
     stock_list = stock_list[TEXT_COLS + ['MarketCapitalization', 'SecuritiesCode']]
@@ -61,11 +67,6 @@ def get_data(folder='train_files'):
     train_df = set_date_index(train_df)
     print('train_df.head(10):')
     print(train_df.head(10))
-
-
-    # train_df['Date'] = pd.to_datetime(train_df['Date']) 
-    # train_df.set_index('Date', inplace=True)
-
 
     return train_df
 
@@ -154,10 +155,6 @@ def dataloader_test_by_stock(
 
     """Hard coded cat-columns"""
     cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
-
-
-    # df['Target'] = df['Close'].shift().pct_change()
-    # print(df.head())
     
     # cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
