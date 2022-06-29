@@ -25,9 +25,6 @@ def run_pred_step(test_loader, model, x_cat=None, target=False):
             x_cat = data['cat_features'].to(device)
         with torch.torch.no_grad():
             pred = model(x, x_cat).to(device).detach().numpy()
-
-        print('Test predictions:')
-        print(pred.squeeze(), pred.squeeze().shape)
         pred_list.append(pred.squeeze())
 
     return pred_list
