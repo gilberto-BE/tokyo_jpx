@@ -200,7 +200,6 @@ class NeuralNetwork(nn.Module):
     TODO:
     1) IMPLEMENT PREPROCESSING AS A LAYER IN THE NETWORK.
     """
-    
     def __init__(
         self, 
         in_features, 
@@ -258,29 +257,16 @@ class NeuralNetwork(nn.Module):
                     ])
 
     def forward(self, x, x_cat=None):
-        """
-        TODO:
-        * Add residual connictions.
-        """
         if x_cat is not None:
             x_cat = x_cat.to(torch.int64)
             x_cat = self.embedding_layer(x_cat)
-            x_cat = torch.squeeze(torch.real(torch.fft.fft2(x_cat)))
             x_cat = F.relu(self.embedding_to_hidden(x_cat))
-            x_cat = self.dropout(x_cat)
             x_cat = F.relu(self.embedding_output(x_cat))
-            x_cat = self.dropout(x_cat)
-        # cont_residual = x
-        # print('x.shape from start:', x.shape)
         x = torch.real(torch.fft.fft2(x))
-        # print('x.shape after fft2:', x.shape)
         x = self.pooling_layer(x)
-        # print('x.shape after pooling:', x.shape)
         x = F.relu(self.cont_input(x))
-        # print('x.shape after first cont layer:', x.shape)
-        # We are adding cat vars
-        x = torch.cat((x, x_cat.view((x_cat.shape[0], -1))), dim=1)
-        # print('x.shape after torch.cat:', x.shape)
+        x = torch.cat((x, x_cat.view((x_cat.size(0), -1))), dim=1)
+        x = self.dropout(x)
 
         tot_preds = 0
         block_input = x

@@ -1,4 +1,3 @@
-from src.metrics.metrics import compute_metrics
 import torch
 import torch.nn as nn
 torch.manual_seed(0)
@@ -12,7 +11,7 @@ import torchmetrics as TM
 # pl.utilities.seed.seed_everything(seed=42)
 from torch import nn, Tensor
 import math
-from metrics import compute_metrics
+from metrics.metrics import compute_metrics
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -62,9 +61,9 @@ class Trainer:
     def fit_epochs(
         self, 
         train_loader: torch.utils.data.DataLoader, 
-        valid_loader:torch.utils.data.DataLoader=None, 
-        use_cyclic_lr:bool=False, 
-        epochs:int=5, 
+        valid_loader: torch.utils.data.DataLoader = None, 
+        use_cyclic_lr: bool = False, 
+        epochs: int = 5, 
         x_cat=None
         ):
         train_loss = []
@@ -84,7 +83,6 @@ class Trainer:
             result = self.fit_one_epoch(train_loader, valid_loader, use_cyclic_lr, x_cat=x_cat)
             scheduler.step(result['avg_loss_val'])
             if epoch % 10  == 0:
-                # print(f'Epoch: <<< {epoch} >>>')
                 print(
                     f"""
                     Average train loss: {result["avg_loss_train"]} | 
@@ -94,7 +92,6 @@ class Trainer:
                     Val-Mae: {result["val_mae"]}
                     """
                     )
-                # print('.' * 20, f'End of epoch {epoch}','.' * 20)
             if result['avg_loss_val'] < best_valid_loss:
                 """
                 SAVE THE BEST MODEL BASED ON BEST VALID LOSS
@@ -104,7 +101,6 @@ class Trainer:
             valid_loss.append(result["avg_loss_val"].cpu().detach().numpy())
             train_mae.append(result["train_mae"])
             valid_mae.append(result["val_mae"])
-
         return train_loss, train_mae, valid_loss, valid_mae
 
     def fit_one_epoch(
@@ -164,7 +160,7 @@ class Trainer:
                 last_loss = running_loss/loss_every
                 running_loss = 0.0
 
-        train_metrics = compute_metrics()(pred, y)
+        train_metrics = compute_metrics(pred, y)
         return pred, last_loss, train_metrics
 
     def run_val_step(self, valid_loader, x_cat=True):

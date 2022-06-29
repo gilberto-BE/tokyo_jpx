@@ -14,7 +14,7 @@ def set_date_index(df, col='Date'):
     return df
 
 
-def get_data(folder='train_files', root_path=None):
+def get_data(folder='train_files', supp_files='supplemental_files'):
     """
     HOW TO HANDLE PREPROCESSING TEXT FOR 
     PREDICTION PIPELINE????
@@ -30,16 +30,13 @@ def get_data(folder='train_files', root_path=None):
     """
     computer_name1 = 'gilbe'
     computer_name2 = 'Gilberto-BE'
-    
 
     ROOT_PATH = f'c:/Users/{computer_name1}/Documents/TokyoData'
+    train_df = pd.read_csv(f'{ROOT_PATH}/{folder}/stock_prices.csv')
+    tran_df_supplement = pd.read_csv(f'{ROOT_PATH}/{supp_files}/stock_prices.csv') # New code
 
-    if root_path is None:
-        root_path = ROOT_PATH
 
-
-    train_df = pd.read_csv(f'{root_path}/{folder}/stock_prices.csv')
-    stock_list = pd.read_csv(f'{root_path}/stock_list.csv').drop('Close', axis=1)
+    stock_list = pd.read_csv(f'{ROOT_PATH}/stock_list.csv').drop('Close', axis=1)
 
     TEXT_COLS = ['Section/Products', '33SectorName', '17SectorName', 'Universe0']
     stock_list = stock_list[TEXT_COLS + ['MarketCapitalization', 'SecuritiesCode']]
@@ -67,6 +64,11 @@ def get_data(folder='train_files', root_path=None):
     train_df = set_date_index(train_df)
     print('train_df.head(10):')
     print(train_df.head(10))
+
+
+    # train_df['Date'] = pd.to_datetime(train_df['Date']) 
+    # train_df.set_index('Date', inplace=True)
+
 
     return train_df
 
@@ -120,10 +122,10 @@ def dataloader_by_stock(
     xtrain, ytrain = preprocess(df_train, 'Target', 1, continous_cols=continous_cols)
     xval, yval = preprocess(df_val, 'Target', 1, continous_cols=continous_cols)
 
-    # if transform is not None:
-    #     scaler = transform()
-    #     xtrain = scaler.fit_transform(xtrain)
-    #     xval = scaler.transform(xval)
+    if transform is not None:
+        scaler = transform()
+        xtrain = scaler.fit_transform(xtrain)
+        xval = scaler.transform(xval)
 
     train_loader = get_loader(
         x=xtrain, 
@@ -143,35 +145,36 @@ def dataloader_by_stock(
 
 
 def dataloader_test_by_stock(
-    train_df, 
+    df, 
     sec_code, 
     transformer=None, 
     batch_size=32,  
     continous_cols=['Close'],
-    target_col='Target'
+    target_col='Target',
+    return_idx=True
     ):
-    df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
+    df = df[df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
 
     """Hard coded cat-columns"""
     cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
-    
-    # cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
     
-    # print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
-    xtest = preprocess(cont, target_col, 1, continous_cols=continous_cols)
+    print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
+    xtest, idx = preprocess(cont, target_col, 1, continous_cols=continous_cols, return_idx=return_idx)
 
-    # if transformer is not None:
-    #     xtest = transformer.transform(xtest)
-    # else:
-    #     print('Notice that the transformer is None.')
+    if transformer is not None:
+        xtest = transformer.transform(xtest)
+    else:
+        print('Notice that the transformer is None.')
 
     test_dataloader = get_predict_loader(
         x=xtest, 
         batch_size=batch_size, 
         x_cat=cat.to_numpy()
         )
+    if return_idx:
+        return test_dataloader, idx
     return test_dataloader
 
 
@@ -218,7 +221,8 @@ def preprocess(
     df, 
     target_col='Target',
     target_dim=1, 
-    continous_cols=['Open', 'Close', 'High', 'Low', 'Volume']
+    continous_cols=['Open', 'Close', 'High', 'Low', 'Volume'],
+    return_idx=False
     ):
     """
     -----------------
@@ -232,17 +236,19 @@ def preprocess(
         x[col] = x[col] * df['AdjustmentFactor']
 
     if continous_cols:
-        x[continous_cols] = x[continous_cols].pct_change()
+        x[continous_cols] = x[continous_cols].pct_change().dropna()
+    idx = x.index
     x = x.select_dtypes(include=[int, float]).dropna().to_numpy()
+    
     if target_col is not None:
-        
         y = df[target_col].dropna()
-        # y.plot()
         y = y.to_numpy().reshape(rows, target_dim)
-
+        if return_idx:
+            return x, y, idx
         return x, y
     else:
-        # x = df
+        if return_idx:
+            return x, idx
         return x
 
 
