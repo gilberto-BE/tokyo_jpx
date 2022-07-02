@@ -13,19 +13,20 @@ class Predict:
         return self.model.eval()
 
 
-def run_pred_step(test_loader, model, x_cat=None, target=False):
-    running_loss = 0.0
+def run_pred_step(test_loader, model, x_cat=None):
     device = "cpu"
     model.eval()
-
-    pred_list = []
-    for batch, data in enumerate(test_loader):
-        x = data['num_features'].to(device)
-        if x_cat is not None:
-            x_cat = data['cat_features'].to(device)
-        with torch.torch.no_grad():
-            pred = model(x, x_cat).to(device).detach().numpy()
-        pred_list.append(pred.squeeze())
-
-    return pred_list
+    try:
+        for batch, data in enumerate(test_loader):
+            x = data['num_features'].to(device)
+            if x.shape[0] > 0:
+                if x_cat is not None:
+                    x_cat = data['cat_features'].to(device)
+                with torch.torch.no_grad():
+                    pred = model(x, x_cat).to(device).detach().numpy()
+            else:
+                return np.nan
+        return pred.squeeze()
+    except Exception as e:
+        print(f'Exception from prediciton script: {e}')
             

@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.impute import SimpleImputer
 import pandas as pd
 from sklearn.preprocessing import OrdinalEncoder
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MaxAbsScaler
 
 
 def set_date_index(df, col='Date'):
@@ -14,7 +14,28 @@ def set_date_index(df, col='Date'):
     return df
 
 
-def get_data(folder='train_files', supp_files='supplemental_files'):
+def df_prediction(
+    prices, 
+    options=None, 
+    financials=None, 
+    trades=None, 
+    secondary_prices=None, 
+    sample_predictions=None):
+
+    pass
+
+
+def get_data(
+    folder='train_files', 
+    root_path=None, 
+    supp_files='supplemental_files', 
+    prices=None,
+    options=None,
+    financials=None,
+    trades=None,
+    secondary_prices=None,
+    sample_predictions=None
+    ):
     """
     HOW TO HANDLE PREPROCESSING TEXT FOR 
     PREDICTION PIPELINE????
@@ -31,12 +52,21 @@ def get_data(folder='train_files', supp_files='supplemental_files'):
     computer_name1 = 'gilbe'
     computer_name2 = 'Gilberto-BE'
 
-    ROOT_PATH = f'c:/Users/{computer_name1}/Documents/TokyoData'
-    train_df = pd.read_csv(f'{ROOT_PATH}/{folder}/stock_prices.csv')
-    tran_df_supplement = pd.read_csv(f'{ROOT_PATH}/{supp_files}/stock_prices.csv') # New code
+    if root_path is None:
+        root_path = f'c:/Users/{computer_name1}/Documents/TokyoData'
+    
+    if prices is not None:
+        train_df = prices
+    else:
+        train_df = pd.read_csv(f'{root_path}/{folder}/stock_prices.csv')
+    
+    if secondary_prices:
+        train_df_supplement = secondary_prices
+    else:
+        train_df_supplement = pd.read_csv(f'{root_path}/{supp_files}/stock_prices.csv') # New code
 
 
-    stock_list = pd.read_csv(f'{ROOT_PATH}/stock_list.csv').drop('Close', axis=1)
+    stock_list = pd.read_csv(f'{root_path}/stock_list.csv').drop('Close', axis=1)
 
     TEXT_COLS = ['Section/Products', '33SectorName', '17SectorName', 'Universe0']
     stock_list = stock_list[TEXT_COLS + ['MarketCapitalization', 'SecuritiesCode']]
@@ -94,34 +124,36 @@ def dataloader_by_stock(
     batch_size=32,  
     continous_cols=['Close'],
     return_scaler=False,
-    transform=StandardScaler
+    transform=StandardScaler, 
+    train_size=0.85
     ):
     df = train_df[train_df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
     
     """
-
     TODO:
     1. CREATE A BRANCH FOR THE TESTING PHASE!!!!
 
     CHANGES HERE HAVE TO BE IMPLEMENTED IN dataloader_test_by_stock()
     Hard coded cat-columns
-    
-    
     """
     cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
     # print('continouscols:', cont.columns)
     
-    print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
+    # print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
     
-    df_train_cat, df_val_cat = ts_split(cat)
+    df_train_cat, df_val_cat = ts_split(cat, train_size)
     # print('cat_columns:', df_train_cat.columns)
-    df_train, df_val = ts_split(cont)
+    df_train, df_val = ts_split(cont, train_size)
 
     xtrain, ytrain = preprocess(df_train, 'Target', 1, continous_cols=continous_cols)
     xval, yval = preprocess(df_val, 'Target', 1, continous_cols=continous_cols)
 
+    """
+    TODO:
+    If only one value in test dataset reshape data in transformer!
+    """
     if transform is not None:
         scaler = transform()
         xtrain = scaler.fit_transform(xtrain)
@@ -139,8 +171,8 @@ def dataloader_by_stock(
         batch_size=batch_size, 
         x_cat=df_val_cat.to_numpy()
         )
-    # if return_scaler:
-    #     return train_loader, val_dataloader, scaler
+    if return_scaler:
+        return train_loader, val_dataloader, scaler
     return train_loader, val_dataloader
 
 
@@ -151,22 +183,28 @@ def dataloader_test_by_stock(
     batch_size=32,  
     continous_cols=['Close'],
     target_col='Target',
-    return_idx=True
+    return_idx=True,
+    date=None,
     ):
     df = df[df['SecuritiesCode'] == sec_code].drop(['SecuritiesCode'], axis=1)
     df = date_features(df)
+    if date:
+        df.reset_index(inplace=True)
+        df = df[df['Date'] == date]
+        df.set_index('Date', inplace=True)
 
     """Hard coded cat-columns"""
     cat_cols = ['day_of_year', 'month', 'day_of_week', 'RowId', 'Section/Products', '33SectorName', '17SectorName']
     cont, cat = cont_cat_split(df, cat_cols=cat_cols)
     
-    print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
+    # print('continuos shape:', cont.shape, '', 'categorical shape:', cat.shape)
     xtest, idx = preprocess(cont, target_col, 1, continous_cols=continous_cols, return_idx=return_idx)
 
-    if transformer is not None:
-        xtest = transformer.transform(xtest)
-    else:
-        print('Notice that the transformer is None.')
+    if len(xtest) > 0:
+        if len(xtest) == 1:
+            xtest = xtest.reshape(1, -1)
+        if transformer is not None:
+            xtest = transformer.transform(xtest)
 
     test_dataloader = get_predict_loader(
         x=xtest, 
@@ -178,11 +216,11 @@ def dataloader_test_by_stock(
     return test_dataloader
 
 
-def ts_split(raw_data, train_size=0.85, val_size=None):
+def ts_split(raw_data, train_size=0.85):
     """
     Hard code and train date.
     """
-    train_sz = '2021-11-30' #int(len(raw_data) * train_size)
+    train_sz = int(len(raw_data) * train_size) #'2021-11-30' #int(len(raw_data) * train_size)
     train_set = raw_data[ :train_sz]
     valid_set = raw_data[train_sz: ]
     return train_set, valid_set    
@@ -228,7 +266,7 @@ def preprocess(
     -----------------
     Return x, y
     """
-    rows = len(df)
+    # rows = len(df)
     df['Volume'] = df['Volume'].astype(float)
     x = df.drop(target_col, axis=1) if target_col is not None else df
     x = x[continous_cols]
@@ -236,13 +274,17 @@ def preprocess(
         x[col] = x[col] * df['AdjustmentFactor']
 
     if continous_cols:
-        x[continous_cols] = x[continous_cols].pct_change().dropna()
+        x[continous_cols] = x[continous_cols] #.pct_change().dropna()
     idx = x.index
-    x = x.select_dtypes(include=[int, float]).dropna().to_numpy()
+
+    """MIGHT NEED TO REPLACE DROPNA WITH IMPUTAITON???"""
+    x = x.select_dtypes(include=[int, float]).fillna(0).to_numpy()
     
     if target_col is not None:
-        y = df[target_col].dropna()
-        y = y.to_numpy().reshape(rows, target_dim)
+        y = df[target_col].fillna(0)
+        
+        y = y.to_numpy().reshape(len(y), target_dim)
+        
         if return_idx:
             return x, y, idx
         return x, y

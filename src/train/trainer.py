@@ -24,7 +24,7 @@ class Trainer:
         lr: float = 3e-6, 
         loss_fn_name: str = 'mse',
         weight_decay: float = 0.0,
-        scale_ts: bool = False
+        scale_ts: bool = False,
 
         ):
 
@@ -140,18 +140,15 @@ class Trainer:
             TODO: CHECK SCALING ISSUES
             USE MAX-SCALING???
             """
-            if self.scale_ts:
-                scaling_factor = torch.abs(x.max(1)[0].unsqueeze(1))
-                x = x/scaling_factor
-
+            # if self.scale_ts:
+            #     scaling_factor = torch.abs(torch.max(x))
+            #     x = x/scaling_factor
             if x_cat is not None:
                 x_cat = data['cat_features'].to(self.device)
                 pred = self.model(x, x_cat).to(self.device)
             else:
                 pred = self.model(x).to(self.device)
-            
-            if self.scale_ts:
-                pred = pred * scaling_factor
+
             loss = self.loss_fn(pred, y)
             loss.backward()
             self.optimizer.step()
@@ -170,11 +167,15 @@ class Trainer:
         for batch, data in enumerate(valid_loader):
             x = data['num_features'].to(self.device)
             y = data['target'].to(self.device)
+            # if self.scale_ts:
+            #     scaling_factor = torch.abs(torch.max(x))
+            #     x = x/scaling_factor
             if x_cat is not None:
                 x_cat = data['cat_features'].to(self.device)
                 pred = self.model(x, x_cat).to(self.device)
             else:
                 pred = self.model(x)
+
             loss = self.loss_fn(pred, y)
             running_loss += loss
         avg_loss = running_loss/(batch + 1)
