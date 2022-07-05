@@ -276,7 +276,9 @@ def preprocess(
     x = df.drop(target_col, axis=1) if target_col is not None else df
     x = x[continous_cols]
     for col in continous_cols:
-        x[col] = x[col] * df['AdjustmentFactor'].cumprod()
+        x[col] = x[col] * df['AdjustmentFactor'].cumprod().map(lambda x: float(
+        Decimal(str(x)).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)
+    ).ffill() 
     # x['Close'] = x['Close'] * df['AdjustmentFactor'].cumprod()
 
     if continous_cols:

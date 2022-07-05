@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tokyo_jpx"
-version = "0.0.33"
+version = "0.0.35"
 authors = [
   { name="Gilberto Batres-Estrada", email="g.batres.estrada@gmail.com" },
 ]

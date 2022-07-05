@@ -266,8 +266,10 @@ class NeuralNetwork(nn.Module):
             x_cat = F.relu(self.embedding_to_hidden(x_cat))
             x_cat = F.relu(self.embedding_output(x_cat))
         x = torch.real(torch.fft.fft2(x))
+        # print('x.shape after fft2:', x.shape)
         if self.apply_pooling:
             x = self.pooling_layer(x)
+            # print('x.shape after pooling:', x.shape)
         x = F.relu(self.cont_input(x))
         x = torch.cat((x, x_cat.view((x_cat.size(0), -1))), dim=1)
         x = self.dropout(x)
