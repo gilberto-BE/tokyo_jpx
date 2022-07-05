@@ -213,7 +213,8 @@ class NeuralNetwork(nn.Module):
         n_stacks=8,
         pooling_sizes=3,
         res_layers=3,
-        res_blocks=2
+        res_blocks=2,
+        apply_pooling=True
         ):
 
         """
@@ -235,6 +236,7 @@ class NeuralNetwork(nn.Module):
         self.pooling_sizes = pooling_sizes
         self.res_layers = res_layers
         self.res_blocks = res_blocks
+        self.apply_pooling = apply_pooling
 
         if no_embedding and emb_dim:
             self.embedding_layer = nn.Embedding(self.no_embedding, self.emb_dim)
@@ -244,7 +246,8 @@ class NeuralNetwork(nn.Module):
         # if adding cont vars subtract from in-features
         self.cont_input = nn.Linear(self.in_features, self.units)
         self.dropout = nn.Dropout(dropout)
-        self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
+        if self.apply_pooling:
+            self.pooling_layer = nn.MaxPool1d(kernel_size=self.pooling_sizes, stride=self.pooling_sizes, ceil_mode=True)
 
         self.stacks = nn.ModuleList([
             NeuralStack(
@@ -263,7 +266,8 @@ class NeuralNetwork(nn.Module):
             x_cat = F.relu(self.embedding_to_hidden(x_cat))
             x_cat = F.relu(self.embedding_output(x_cat))
         x = torch.real(torch.fft.fft2(x))
-        x = self.pooling_layer(x)
+        if self.apply_pooling:
+            x = self.pooling_layer(x)
         x = F.relu(self.cont_input(x))
         x = torch.cat((x, x_cat.view((x_cat.size(0), -1))), dim=1)
         x = self.dropout(x)

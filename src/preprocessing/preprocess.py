@@ -1,4 +1,5 @@
 
+from logging import root
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -75,10 +76,14 @@ def get_data(
     for txt_col in TEXT_COLS:
         train_df[txt_col] = TextTransform(list(train_df[txt_col])).transform()
 
-    # # Add financials
-    # df_financials = pd.read_csv(f'{ROOT_PATH}/train_files/financials.csv', low_memory=False)
-    # df_financials.replace('－', np.nan, inplace=True)
-    # df_financials.replace('NaN', np.nan, inplace=True)
+    # if financials is not None:
+    #     df_financials = financials
+
+    # else:
+    #     # Add financials
+    #     df_financials = pd.read_csv(f'{root_path}/train_files/financials.csv', low_memory=False)
+    #     df_financials.replace('－', np.nan, inplace=True)
+    #     df_financials.replace('NaN', np.nan, inplace=True)
 
     # FIN_COLS_CONT = [
     #     'NetSales', 'EquityToAssetRatio', 'TotalAssets', 'Profit', 
@@ -92,8 +97,8 @@ def get_data(
     # train_df = train_df.merge(df_financials,  on=['SecuritiesCode', 'Date'], how='left')
     
     train_df = set_date_index(train_df)
-    print('train_df.head(10):')
-    print(train_df.head(10))
+    print('train_df.head(2):')
+    print(train_df.head(2))
 
 
     # train_df['Date'] = pd.to_datetime(train_df['Date']) 
@@ -271,7 +276,8 @@ def preprocess(
     x = df.drop(target_col, axis=1) if target_col is not None else df
     x = x[continous_cols]
     for col in continous_cols:
-        x[col] = x[col] * df['AdjustmentFactor']
+        x[col] = x[col] * df['AdjustmentFactor'].cumprod()
+    # x['Close'] = x['Close'] * df['AdjustmentFactor'].cumprod()
 
     if continous_cols:
         x[continous_cols] = x[continous_cols] #.pct_change().dropna()
